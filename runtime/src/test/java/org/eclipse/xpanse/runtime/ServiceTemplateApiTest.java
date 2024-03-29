@@ -29,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.xpanse.modules.database.servicetemplate.DatabaseServiceTemplateStorage;
 import org.eclipse.xpanse.modules.database.servicetemplate.ServiceTemplateEntity;
+import org.eclipse.xpanse.modules.models.common.enums.Csp;
 import org.eclipse.xpanse.modules.models.response.Response;
 import org.eclipse.xpanse.modules.models.response.ResultType;
 import org.eclipse.xpanse.modules.models.servicetemplate.AvailabilityZoneConfig;
@@ -43,6 +44,7 @@ import org.eclipse.xpanse.modules.models.servicetemplate.view.ServiceTemplateDet
 import org.eclipse.xpanse.runtime.util.ApisTestCommon;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.semver4j.Semver;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
@@ -91,7 +93,8 @@ class ServiceTemplateApiTest extends ApisTestCommon {
                 serviceTemplateDetailVo.getCsp());
         assertEquals(ocl.getName().toLowerCase(Locale.ROOT),
                 serviceTemplateDetailVo.getName());
-        assertEquals(ocl.getServiceVersion(), serviceTemplateDetailVo.getVersion());
+        assertEquals(new Semver(ocl.getServiceVersion()).getVersion(),
+                serviceTemplateDetailVo.getVersion());
 
         // Setup detail request
         UUID id = serviceTemplateDetailVo.getId();
@@ -109,7 +112,7 @@ class ServiceTemplateApiTest extends ApisTestCommon {
         final MockHttpServletResponse response =
                 listServiceTemplatesWithParams(ocl.getCategory().toValue(),
                         ocl.getCloudServiceProvider().getName().toValue(),
-                        ocl.getName(), ocl.getServiceVersion(),
+                        ocl.getName(), serviceTemplateDetailVo.getVersion(),
                         ocl.getServiceHostingType().toValue(),
                         ServiceRegistrationState.APPROVAL_PENDING.toValue());
         // Verify the results
@@ -188,9 +191,11 @@ class ServiceTemplateApiTest extends ApisTestCommon {
         testManageApisThrowsAccessDeniedException();
 
         testRegisterThrowsMethodArgumentNotValidException();
+        testRegisterThrowsPluginNotFoundException();
         testRegisterThrowsTerraformExecutionException();
         testRegisterThrowsInvalidValueSchemaException();
         testRegisterThrowsServiceTemplateAlreadyRegistered();
+        testRegisterThrowsIllegalArgumentException();
 
         testFetchThrowsRuntimeException();
         testListServiceTemplatesThrowsException();
@@ -299,6 +304,25 @@ class ServiceTemplateApiTest extends ApisTestCommon {
         final MockHttpServletResponse response = register(ocl);
         // Verify the results
         assertEquals(HttpStatus.UNPROCESSABLE_ENTITY.value(), response.getStatus());
+        assertEquals(objectMapper.writeValueAsString(expectedResponse),
+                response.getContentAsString());
+    }
+
+    @Test
+    @WithJwt(file = "jwt_isv.json")
+    void testRegisterThrowsPluginNotFoundException() throws Exception {
+        // Setup
+        Ocl ocl = oclLoader.getOcl(
+                URI.create("file:src/test/resources/ocl_terraform_test.yml").toURL());
+        Csp csp = Csp.AWS;
+        ocl.getCloudServiceProvider().setName(csp);
+        Response expectedResponse = Response.errorResponse(ResultType.PLUGIN_NOT_FOUND,
+                Collections.singletonList(
+                        String.format("Can't find suitable plugin for the Csp %s", csp.name())));
+        // Run the test
+        final MockHttpServletResponse response = register(ocl);
+        // Verify the results
+        assertEquals(HttpStatus.BAD_REQUEST.value(), response.getStatus());
         assertEquals(objectMapper.writeValueAsString(expectedResponse),
                 response.getContentAsString());
     }
@@ -421,6 +445,49 @@ class ServiceTemplateApiTest extends ApisTestCommon {
         assertEquals(HttpStatus.BAD_REQUEST.value(), registerSameResponse.getStatus());
         assertEquals(registerSameResponse.getContentAsString(), result);
         unregister(serviceTemplateDetail.getId());
+    }
+
+    void testRegisterThrowsIllegalArgumentException() throws Exception {
+        // Setup
+        Ocl ocl = oclLoader.getOcl(
+                URI.create("file:src/test/resources/ocl_terraform_test.yml").toURL());
+        ocl.setName("serviceTemplateApiTest-04");
+        String serviceVersion = "ErrorVersion";
+        ocl.setServiceVersion(serviceVersion);
+        String errorMsg1 = String.format("The service version %s is a invalid semver version.",
+                serviceVersion);
+        Response expectedResponse1 =
+                Response.errorResponse(ResultType.BAD_PARAMETERS,
+                        Collections.singletonList(errorMsg1));
+        // Run the test
+        final MockHttpServletResponse registerResponse1 = register(ocl);
+        // Verify the results
+        assertEquals(HttpStatus.BAD_REQUEST.value(), registerResponse1.getStatus());
+        assertEquals(registerResponse1.getContentAsString(),
+                objectMapper.writeValueAsString(expectedResponse1));
+
+        String existingServiceVersion = "1.0.0";
+        ocl.setServiceVersion(existingServiceVersion);
+        ServiceTemplateDetailVo serviceTemplate = registerServiceTemplate(ocl);
+
+
+        // Setup
+        String lowerVersion = "0.0.1";
+        ocl.setServiceVersion(lowerVersion);
+        String errorMsg2 = String.format("The version %s of service must be higher than the"
+                        + " highest version %s of the registered services with same name",
+                lowerVersion, existingServiceVersion);
+        Response expectedResponse2 =
+                Response.errorResponse(ResultType.BAD_PARAMETERS,
+                        Collections.singletonList(errorMsg2));
+        // Run the test
+        final MockHttpServletResponse registerResponse2 = register(ocl);
+        // Verify the results
+        assertEquals(HttpStatus.BAD_REQUEST.value(), registerResponse2.getStatus());
+        assertEquals(registerResponse2.getContentAsString(),
+                objectMapper.writeValueAsString(expectedResponse2));
+
+        unregister(serviceTemplate.getId());
     }
 
     void testFetchThrowsRuntimeException() throws Exception {

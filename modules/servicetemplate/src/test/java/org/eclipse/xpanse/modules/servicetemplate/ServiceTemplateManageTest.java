@@ -112,7 +112,6 @@ class ServiceTemplateManageTest {
     @Test
     void testUpdateServiceTemplate() throws Exception {
         Ocl ocl = oclLoader.getOcl(URI.create(oclLocation).toURL());
-        ocl.setVersion("2.1");
         ServiceTemplateEntity serviceTemplateEntity = getServiceTemplateEntity();
         when(mockStorage.getServiceTemplateById(uuid)).thenReturn(serviceTemplateEntity);
         when(mockStorage.storeAndFlush(any())).thenReturn(serviceTemplateEntity);
@@ -133,7 +132,7 @@ class ServiceTemplateManageTest {
     @Test
     void testUpdateThrowsServiceTemplateUpdateNotAllowedException() throws Exception {
         Ocl ocl = oclLoader.getOcl(URI.create(oclLocation).toURL());
-        ocl.setServiceVersion("1.0");
+        ocl.setServiceVersion("1.0.1");
         ServiceTemplateEntity serviceTemplateEntity = getServiceTemplateEntity();
         when(mockStorage.getServiceTemplateById(uuid)).thenReturn(serviceTemplateEntity);
         when(identityProviderManager.getUserNamespace()).thenReturn(Optional.of("ISV-A"));
@@ -200,6 +199,17 @@ class ServiceTemplateManageTest {
         when(mockStorage.findServiceTemplate(entity)).thenReturn(existedServiceTemplateEntity);
 
         Assertions.assertThrows(ServiceTemplateAlreadyRegistered.class,
+                () -> serviceTemplateManageTest.registerServiceTemplate(ocl));
+    }
+
+    @Test
+    void testRegisterThrowsIllegalArgumentException() throws Exception {
+        Ocl ocl = oclLoader.getOcl(URI.create(oclLocation).toURL());
+        ocl.setServiceVersion("ErrorVersion");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> serviceTemplateManageTest.registerServiceTemplate(ocl));
+        ocl.setVersion("0.0.1");
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> serviceTemplateManageTest.registerServiceTemplate(ocl));
     }
 
