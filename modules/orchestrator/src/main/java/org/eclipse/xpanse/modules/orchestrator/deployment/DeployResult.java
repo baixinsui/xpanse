@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.Data;
 import org.eclipse.xpanse.modules.models.service.deploy.DeployResource;
-import org.eclipse.xpanse.modules.models.service.enums.DeployerTaskStatus;
+import org.eclipse.xpanse.modules.models.service.order.enums.ServiceOrderType;
 
 /**
  * The result of the deployment.
@@ -32,12 +32,12 @@ public class DeployResult {
     private UUID serviceId;
 
     @NotNull
-    @Schema(description = "True if the deployer task is successful.")
-    private Boolean isTaskSuccessful;
+    @Schema(description = "The type of the service order task.")
+    private ServiceOrderType taskType;
 
     @NotNull
-    @Schema(description = "The state of the deployer task.")
-    private DeployerTaskStatus state;
+    @Schema(description = "True if the deployer task is successful.")
+    private Boolean isTaskSuccessful;
 
     @Schema(description = "The message of the service order task.")
     private String message;

@@ -33,8 +33,6 @@ class DeployTaskTest {
     private DeployRequest mockDeployRequest;
     @Mock
     private Ocl mockOcl;
-    @Mock
-    private DeploymentScenario mockDeploymentScenario;
     private DeployTask test;
 
     @BeforeEach
@@ -48,7 +46,6 @@ class DeployTaskTest {
         test.setDeployRequest(mockDeployRequest);
         test.setOcl(mockOcl);
         test.setServiceTemplateId(serviceTemplateId);
-        test.setDeploymentScenario(mockDeploymentScenario);
     }
 
     @Test
@@ -61,7 +58,6 @@ class DeployTaskTest {
         assertThat(test.getDeployRequest()).isEqualTo(mockDeployRequest);
         assertThat(test.getOcl()).isEqualTo(mockOcl);
         assertThat(test.getServiceTemplateId()).isEqualTo(serviceTemplateId);
-        assertThat(test.getDeploymentScenario()).isEqualTo(mockDeploymentScenario);
     }
 
     @Test
@@ -88,8 +84,7 @@ class DeployTaskTest {
                 + "namespace=" + namespace + ", "
                 + "deployRequest=" + mockDeployRequest + ", "
                 + "ocl=" + mockOcl + ", "
-                + "serviceTemplateId=" + serviceTemplateId + ", "
-                + "deploymentScenario=" + mockDeploymentScenario + ")";
+                + "serviceTemplateId=" + serviceTemplateId + ")";
         assertEquals(exceptedString, test.toString());
     }
 }

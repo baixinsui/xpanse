@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.eclipse.xpanse.modules.models.service.deploy.DeployResource;
-import org.eclipse.xpanse.modules.models.service.enums.DeployerTaskStatus;
+import org.eclipse.xpanse.modules.models.service.order.enums.ServiceOrderType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -34,7 +34,7 @@ class DeployResultTest {
 
     private final String message = "success";
 
-    private final DeployerTaskStatus state = DeployerTaskStatus.DEPLOY_SUCCESS;
+    private final ServiceOrderType taskType = ServiceOrderType.DEPLOY;
 
     private final String tfStateContent = "tfStateContent";
 
@@ -54,7 +54,7 @@ class DeployResultTest {
         test.setProperties(properties);
         test.setPrivateProperties(privateProperties);
         test.setMessage(message);
-        test.setState(state);
+        test.setTaskType(taskType);
         test.setTfStateContent(tfStateContent);
         test.setDeployerVersionUsed(deployerVersionUsed);
     }
@@ -68,7 +68,7 @@ class DeployResultTest {
         assertEquals(resources, test.getResources());
         assertEquals(properties, test.getProperties());
         assertEquals(privateProperties, test.getPrivateProperties());
-        assertEquals(state, test.getState());
+        assertEquals(taskType, test.getTaskType());
         assertEquals(tfStateContent, test.getTfStateContent());
         assertEquals(deployerVersionUsed, test.getDeployerVersionUsed());
     }
@@ -93,7 +93,7 @@ class DeployResultTest {
         String expectedToString = "DeployResult(orderId=" + orderId
                 + ", serviceId=" + serviceId
                 + ", isTaskSuccessful=" + isSuccessful
-                + ", state=" + state
+                + ", taskType=" + taskType
                 + ", message=" + message
                 + ", resources=" + resources
                 + ", properties=" + properties

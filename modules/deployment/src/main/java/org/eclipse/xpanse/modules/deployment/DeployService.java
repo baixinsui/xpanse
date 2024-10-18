@@ -43,7 +43,6 @@ import org.eclipse.xpanse.modules.models.service.deploy.exceptions.ServiceFlavor
 import org.eclipse.xpanse.modules.models.service.deploy.exceptions.ServiceLockedException;
 import org.eclipse.xpanse.modules.models.service.deploy.exceptions.ServiceModifyParamsNotFoundException;
 import org.eclipse.xpanse.modules.models.service.enums.DeployResourceKind;
-import org.eclipse.xpanse.modules.models.service.enums.DeployerTaskStatus;
 import org.eclipse.xpanse.modules.models.service.enums.ServiceDeploymentState;
 import org.eclipse.xpanse.modules.models.service.modify.ModifyRequest;
 import org.eclipse.xpanse.modules.models.service.order.ServiceOrder;
@@ -61,7 +60,6 @@ import org.eclipse.xpanse.modules.orchestrator.PluginManager;
 import org.eclipse.xpanse.modules.orchestrator.deployment.DeployResult;
 import org.eclipse.xpanse.modules.orchestrator.deployment.DeployTask;
 import org.eclipse.xpanse.modules.orchestrator.deployment.Deployer;
-import org.eclipse.xpanse.modules.orchestrator.deployment.DeploymentScenario;
 import org.eclipse.xpanse.modules.security.UserServiceHelper;
 import org.slf4j.MDC;
 import org.springframework.beans.BeanUtils;
@@ -310,10 +308,9 @@ public class DeployService {
         DeployTask deployTask = new DeployTask();
         deployTask.setOrderId(CustomRequestIdGenerator.generateOrderId());
         deployTask.setServiceId(deployRequest.getServiceId());
-        deployTask.setTaskType(ServiceOrderType.DEPLOY);
         deployTask.setUserId(deployRequest.getUserId());
         deployTask.setDeployRequest(deployRequest);
-        deployTask.setDeploymentScenario(DeploymentScenario.DEPLOY);
+        deployTask.setTaskType(ServiceOrderType.DEPLOY);
         deployTask.setNamespace(existingServiceTemplate.getNamespace());
         deployTask.setOcl(existingServiceTemplate.getOcl());
         deployTask.setServiceTemplateId(existingServiceTemplate.getId());
@@ -461,35 +458,38 @@ public class DeployService {
     /**
      * Perform rollback when deployment fails and destroy the created resources.
      */
-    public void rollbackOnDeploymentFailure(DeployTask deployTask,
+    public void rollbackOnDeploymentFailure(DeployTask rollbackTask,
                                             DeployServiceEntity deployServiceEntity) {
-        log.info("Performing rollback of already provisioned resources.");
-        if (CollectionUtils.isEmpty(deployServiceEntity.getDeployResourceList())) {
-            log.info("No resources need to destroy, the rollback task success.");
-            DeployResult rollbackResult = new DeployResult();
-            rollbackResult.setOrderId(deployTask.getOrderId());
-            rollbackResult.setServiceId(deployTask.getServiceId());
-            rollbackResult.setIsTaskSuccessful(true);
-            rollbackResult.setState(DeployerTaskStatus.ROLLBACK_SUCCESS);
-            deployResultManager.updateServiceOrderTaskWithDeployResult(rollbackResult, null);
-            return;
-        }
-        log.info("Rollback to destroy created resources of the service {}",
-                deployTask.getServiceId());
         DeployResult rollbackResult;
         RuntimeException exception = null;
-        deployTask.setDeploymentScenario(DeploymentScenario.ROLLBACK);
+        log.info("Performing rollback of already provisioned resources.");
+        rollbackTask.setOrderId(UUID.randomUUID());
+        rollbackTask.setTaskType(ServiceOrderType.ROLLBACK);
+        ServiceOrderEntity orderTaskEntity =
+                serviceOrderManager.createServiceOrderTask(rollbackTask, deployServiceEntity);
         Deployer deployer = deployerKindManager.getDeployment(
-                deployTask.getOcl().getDeployment().getDeployerTool().getKind());
+                rollbackTask.getOcl().getDeployment().getDeployerTool().getKind());
         try {
-            rollbackResult = deployer.destroy(deployTask);
+            if (CollectionUtils.isEmpty(deployServiceEntity.getDeployResourceList())) {
+                log.info("No resources need to destroy, the rollback task success.");
+                rollbackResult = new DeployResult();
+                rollbackResult.setTaskType(rollbackTask.getTaskType());
+                rollbackResult.setOrderId(rollbackTask.getOrderId());
+                rollbackResult.setServiceId(rollbackTask.getServiceId());
+                rollbackResult.setIsTaskSuccessful(true);
+            } else {
+                log.info("Rollback to destroy created resources of the service {}",
+                        rollbackTask.getServiceId());
+                serviceOrderManager.startOrderProgress(rollbackTask.getOrderId());
+                rollbackResult = deployer.destroy(rollbackTask);
+            }
         } catch (RuntimeException e) {
             exception = e;
-            rollbackResult = getFailedDeployResult(deployTask, exception);
+            rollbackResult = getFailedDeployResult(rollbackTask, exception);
         }
         deployResultManager.updateDeployServiceEntityWithDeployResult(rollbackResult,
                 deployServiceEntity);
-        deployResultManager.updateServiceOrderTaskWithDeployResult(rollbackResult, null);
+        deployResultManager.updateServiceOrderTaskWithDeployResult(rollbackResult, orderTaskEntity);
         if (Objects.nonNull(exception)) {
             throw exception;
         }
@@ -573,7 +573,6 @@ public class DeployService {
         modifyTask.setNamespace(deployServiceEntity.getNamespace());
         modifyTask.setDeployRequest(newDeployRequest);
         modifyTask.setOcl(existingServiceTemplate.getOcl());
-        modifyTask.setDeploymentScenario(DeploymentScenario.MODIFY);
         return modifyTask;
     }
 
@@ -631,7 +630,6 @@ public class DeployService {
      * @param deployServiceEntity deployServiceEntity
      */
     public void destroyService(DeployTask destroyTask, DeployServiceEntity deployServiceEntity) {
-        destroyTask.setDeploymentScenario(DeploymentScenario.DESTROY);
         destroy(destroyTask, deployServiceEntity);
     }
 
@@ -644,7 +642,7 @@ public class DeployService {
         Deployer deployer = deployerKindManager.getDeployment(
                 destroyTask.getOcl().getDeployment().getDeployerTool().getKind());
         try {
-            if (DeploymentScenario.ROLLBACK != destroyTask.getDeploymentScenario()) {
+            if (ServiceOrderType.ROLLBACK != destroyTask.getTaskType()) {
                 deployServiceEntityHandler.updateServiceDeploymentStatus(deployServiceEntity,
                         ServiceDeploymentState.DESTROYING);
             }
@@ -654,13 +652,8 @@ public class DeployService {
             exception = e;
             destroyResult = getFailedDeployResult(destroyTask, e);
         }
-        DeployServiceEntity updatedServiceEntity =
-                deployResultManager.updateDeployServiceEntityWithDeployResult(destroyResult,
-                        deployServiceEntity);
-        if (ServiceDeploymentState.DESTROY_SUCCESS
-                == updatedServiceEntity.getServiceDeploymentState()) {
-            deployer.deleteTaskWorkspace(destroyTask.getServiceId());
-        }
+        deployResultManager.updateDeployServiceEntityWithDeployResult(destroyResult,
+                deployServiceEntity);
         deployResultManager.updateServiceOrderTaskWithDeployResult(destroyResult, orderTaskEntity);
         if (Objects.nonNull(exception)) {
             throw exception;
@@ -681,7 +674,7 @@ public class DeployService {
             if (!CollectionUtils.isEmpty(deployServiceEntity.getDeployResourceList())) {
                 log.info("Resources of service {} need to clear with order task {}",
                         purgeTask.getServiceId(), purgeTask.getOrderId());
-                purgeTask.setDeploymentScenario(DeploymentScenario.PURGE);
+                purgeTask.setTaskType(ServiceOrderType.PURGE);
                 Deployer deployer = deployerKindManager.getDeployment(
                         purgeTask.getOcl().getDeployment().getDeployerTool().getKind());
                 deployServiceEntityHandler.updateServiceDeploymentStatus(deployServiceEntity,
@@ -723,7 +716,7 @@ public class DeployService {
         deployRequest.setServiceId(newId);
         deployRequest.setUserId(userId);
         DeployTask deployTask = createNewDeployTask(deployRequest);
-        deployTask.setDeploymentScenario(DeploymentScenario.DEPLOY);
+        deployTask.setTaskType(ServiceOrderType.DEPLOY);
         // override task id and user id.
         deployTask.setServiceId(newId);
         deployTask.setOrderId(CustomRequestIdGenerator.generateOrderId());
@@ -743,7 +736,6 @@ public class DeployService {
                 deployServiceEntityConverter.getDeployTaskByStoredService(deployServiceEntity);
         destroyTask.setOrderId(CustomRequestIdGenerator.generateOrderId());
         destroyTask.setTaskType(ServiceOrderType.DESTROY);
-        destroyTask.setDeploymentScenario(DeploymentScenario.DESTROY);
         destroy(destroyTask, deployServiceEntity);
     }
 
@@ -772,7 +764,6 @@ public class DeployService {
                 deployServiceEntityConverter.getDeployTaskByStoredService(deployServiceEntity);
         destroyTask.setOrderId(CustomRequestIdGenerator.generateOrderId());
         destroyTask.setTaskType(ServiceOrderType.DESTROY);
-        destroyTask.setDeploymentScenario(DeploymentScenario.DESTROY);
         return destroyTask;
     }
 
@@ -798,7 +789,6 @@ public class DeployService {
                 deployServiceEntityConverter.getDeployTaskByStoredService(deployServiceEntity);
         purgeTask.setOrderId(CustomRequestIdGenerator.generateOrderId());
         purgeTask.setTaskType(ServiceOrderType.PURGE);
-        purgeTask.setDeploymentScenario(DeploymentScenario.PURGE);
         return purgeTask;
     }
 
@@ -823,8 +813,7 @@ public class DeployService {
         DeployTask redeployTask =
                 deployServiceEntityConverter.getDeployTaskByStoredService(deployServiceEntity);
         redeployTask.setOrderId(CustomRequestIdGenerator.generateOrderId());
-        redeployTask.setTaskType(ServiceOrderType.REDEPLOY);
-        redeployTask.setDeploymentScenario(DeploymentScenario.DEPLOY);
+        redeployTask.setTaskType(ServiceOrderType.RETRY);
         return redeployTask;
     }
 
@@ -852,26 +841,15 @@ public class DeployService {
 
 
     private DeployResult getFailedDeployResult(DeployTask task, Exception ex) {
-        String errorMsg =
-                String.format("Order task %s to %s the service %s failed. " + "Error message:\n %s",
-                        task.getOrderId(), task.getTaskType().toValue(), task.getServiceId(),
-                        ex.getMessage());
+        String errorMsg = String.format("Order task %s to %s the service %s failed. %s",
+                task.getOrderId(), task.getTaskType().toValue(), task.getServiceId(),
+                ex.getMessage());
         DeployResult deployResult = new DeployResult();
         deployResult.setOrderId(task.getOrderId());
         deployResult.setServiceId(task.getServiceId());
+        deployResult.setTaskType(task.getTaskType());
         deployResult.setIsTaskSuccessful(false);
         deployResult.setMessage(errorMsg);
-        deployResult.setState(getDeployerTaskFailedState(task.getDeploymentScenario()));
         return deployResult;
-    }
-
-    private DeployerTaskStatus getDeployerTaskFailedState(DeploymentScenario deploymentScenario) {
-        return switch (deploymentScenario) {
-            case DEPLOY -> DeployerTaskStatus.DEPLOY_FAILED;
-            case DESTROY -> DeployerTaskStatus.DESTROY_FAILED;
-            case ROLLBACK -> DeployerTaskStatus.ROLLBACK_FAILED;
-            case PURGE -> DeployerTaskStatus.PURGE_FAILED;
-            case MODIFY -> DeployerTaskStatus.MODIFICATION_FAILED;
-        };
     }
 }

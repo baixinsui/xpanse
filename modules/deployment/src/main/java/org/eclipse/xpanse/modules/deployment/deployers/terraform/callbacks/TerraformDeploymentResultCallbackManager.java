@@ -20,7 +20,6 @@ import org.eclipse.xpanse.modules.database.servicetemplate.ServiceTemplateStorag
 import org.eclipse.xpanse.modules.deployment.DeployResultManager;
 import org.eclipse.xpanse.modules.deployment.DeployService;
 import org.eclipse.xpanse.modules.deployment.DeployServiceEntityConverter;
-import org.eclipse.xpanse.modules.deployment.DeployServiceEntityHandler;
 import org.eclipse.xpanse.modules.deployment.ResourceHandlerManager;
 import org.eclipse.xpanse.modules.deployment.deployers.terraform.terraformboot.generated.model.TerraformResult;
 import org.eclipse.xpanse.modules.deployment.deployers.terraform.utils.TfResourceTransUtils;
@@ -28,12 +27,10 @@ import org.eclipse.xpanse.modules.deployment.migration.MigrationService;
 import org.eclipse.xpanse.modules.deployment.migration.consts.MigrateConstants;
 import org.eclipse.xpanse.modules.deployment.recreate.RecreateService;
 import org.eclipse.xpanse.modules.deployment.recreate.consts.RecreateConstants;
-import org.eclipse.xpanse.modules.models.service.enums.DeployerTaskStatus;
-import org.eclipse.xpanse.modules.models.service.enums.ServiceDeploymentState;
+import org.eclipse.xpanse.modules.models.service.order.enums.ServiceOrderType;
 import org.eclipse.xpanse.modules.models.servicetemplate.enums.DeployerKind;
 import org.eclipse.xpanse.modules.orchestrator.deployment.DeployResult;
 import org.eclipse.xpanse.modules.orchestrator.deployment.DeployTask;
-import org.eclipse.xpanse.modules.orchestrator.deployment.DeploymentScenario;
 import org.eclipse.xpanse.modules.workflow.utils.WorkflowUtils;
 import org.springframework.stereotype.Component;
 
@@ -43,9 +40,6 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class TerraformDeploymentResultCallbackManager {
-
-    @Resource
-    private DeployServiceEntityHandler deployServiceEntityHandler;
     @Resource
     private ResourceHandlerManager resourceHandlerManager;
     @Resource
@@ -66,78 +60,72 @@ public class TerraformDeploymentResultCallbackManager {
     private ServiceOrderStorage serviceOrderStorage;
 
     /**
-     * Callback method after the deployment task is completed.
+     * Handle the callback of the order task.
+     *
+     * @param orderId the orderId of the task.
+     * @param result  execution result of the task.
      */
-    public void deployCallback(UUID serviceId, TerraformResult result) {
-        DeployResult deployResult =
-                getDeployResult(serviceId, result, DeploymentScenario.DEPLOY);
-        DeployServiceEntity updatedDeployServiceEntity = updateDeployServiceEntity(deployResult);
-        if (ServiceDeploymentState.DEPLOY_FAILED
-                == updatedDeployServiceEntity.getServiceDeploymentState()) {
-            DeployTask rollbackTask =
-                    deployServiceEntityConverter.getDeployTaskByStoredService(
-                            updatedDeployServiceEntity);
-            rollbackTask.setOrderId(result.getRequestId());
-            deployService.rollbackOnDeploymentFailure(rollbackTask, updatedDeployServiceEntity);
+    public void orderCallback(UUID orderId, TerraformResult result) {
+        log.info("Receive the callback result: {} of the order task: {}", result, orderId);
+        ServiceOrderEntity serviceOrderEntity = serviceOrderStorage.getEntityById(orderId);
+        DeployServiceEntity storedServiceEntity = serviceOrderEntity.getDeployServiceEntity();
+        DeployResult deployResult = getDeployResult(result);
+        deployResult.setOrderId(orderId);
+        deployResult.setTaskType(serviceOrderEntity.getTaskType());
+        deployResult.setServiceId(storedServiceEntity.getId());
+        // update deployServiceEntity
+        DeployServiceEntity updatedServiceEntity =
+                updateDeployServiceEntity(deployResult, storedServiceEntity);
+        // when failed task type is deploy or retry, start a new order ro rollback.
+        if (!deployResult.getIsTaskSuccessful()
+                && (serviceOrderEntity.getTaskType() == ServiceOrderType.DEPLOY
+                || serviceOrderEntity.getTaskType() == ServiceOrderType.RETRY)) {
+            DeployTask rollbackTask = deployServiceEntityConverter.getDeployTaskByStoredService(
+                    updatedServiceEntity);
+            rollbackTask.setParentOrderId(orderId);
+            deployService.rollbackOnDeploymentFailure(rollbackTask, updatedServiceEntity);
         }
-
+        // TODO refactor logic of service migration.
+        UUID serviceId = updatedServiceEntity.getId();
         ServiceMigrationEntity serviceMigrationEntity =
                 migrationService.getServiceMigrationEntityByNewServiceId(serviceId);
         if (Objects.nonNull(serviceMigrationEntity)) {
             workflowUtils.completeReceiveTask(serviceMigrationEntity.getMigrationId().toString(),
                     MigrateConstants.MIGRATION_DEPLOY_RECEIVE_TASK_ACTIVITY_ID);
         }
+        // TODO refactor logic of service recreate.
         ServiceRecreateEntity serviceRecreateEntity =
                 recreateService.getServiceRecreateEntityByNewServiceId(serviceId);
         if (Objects.nonNull(serviceRecreateEntity)) {
             workflowUtils.completeReceiveTask(serviceRecreateEntity.getRecreateId().toString(),
                     RecreateConstants.RECREATE_DEPLOY_RECEIVE_TASK_ACTIVITY_ID);
         }
+        // update serviceOrderEntity
         updateServiceOrderEntity(deployResult);
     }
 
-    /**
-     * Callback method after the modification task is completed.
-     */
-    public void modifyCallback(UUID serviceId, TerraformResult terraformResult) {
-        DeployResult deployResult =
-                getDeployResult(serviceId, terraformResult, DeploymentScenario.MODIFY);
-        updateDeployServiceEntity(deployResult);
-        updateServiceOrderEntity(deployResult);
-    }
 
-    private void updateServiceOrderEntity(DeployResult deployResult) {
-        ServiceOrderEntity serviceOrderEntity =
-                serviceOrderStorage.getEntityById(deployResult.getOrderId());
-        deployResultManager.updateServiceOrderTaskWithDeployResult(deployResult,
-                serviceOrderEntity);
-    }
-
-    /**
-     * Callback method after the destroy/rollback/purge task is completed.
-     */
-    public void destroyCallback(UUID serviceId, TerraformResult result,
-                                DeploymentScenario scenario) {
-        DeployResult deployResult = getDeployResult(serviceId, result, scenario);
-        updateDeployServiceEntity(deployResult);
-        ServiceMigrationEntity serviceMigrationEntity =
-                migrationService.getServiceMigrationEntityByOldServiceId(serviceId);
-        if (Objects.nonNull(serviceMigrationEntity)) {
-            workflowUtils.completeReceiveTask(serviceMigrationEntity.getMigrationId().toString(),
-                    MigrateConstants.MIGRATION_DESTROY_RECEIVE_TASK_ACTIVITY_ID);
+    private DeployResult getDeployResult(TerraformResult result) {
+        DeployResult deployResult = new DeployResult();
+        deployResult.setDeployerVersionUsed(result.getTerraformVersionUsed());
+        if (Boolean.FALSE.equals(result.getCommandSuccessful())) {
+            deployResult.setIsTaskSuccessful(false);
+            deployResult.setMessage(result.getCommandStdError());
+        } else {
+            deployResult.setIsTaskSuccessful(true);
+            deployResult.setMessage(null);
         }
-        ServiceRecreateEntity serviceRecreateEntity =
-                recreateService.getServiceRecreateEntityByServiceId(serviceId);
-        if (Objects.nonNull(serviceRecreateEntity)) {
-            workflowUtils.completeReceiveTask(serviceRecreateEntity.getRecreateId().toString(),
-                    RecreateConstants.RECREATE_DESTROY_RECEIVE_TASK_ACTIVITY_ID);
+        deployResult.setTfStateContent(result.getTerraformState());
+        deployResult.getPrivateProperties()
+                .put(TfResourceTransUtils.STATE_FILE_NAME, result.getTerraformState());
+        if (Objects.nonNull(result.getImportantFileContentMap())) {
+            deployResult.getPrivateProperties().putAll(result.getImportantFileContentMap());
         }
-        updateServiceOrderEntity(deployResult);
+        return deployResult;
     }
 
-    private DeployServiceEntity updateDeployServiceEntity(DeployResult deployResult) {
-        DeployServiceEntity deployServiceEntity =
-                deployServiceEntityHandler.getDeployServiceEntity(deployResult.getServiceId());
+    private DeployServiceEntity updateDeployServiceEntity(DeployResult deployResult,
+                                                          DeployServiceEntity deployServiceEntity) {
         if (StringUtils.isNotBlank(deployResult.getTfStateContent())) {
             ServiceTemplateEntity serviceTemplateEntity =
                     serviceTemplateStorage.getServiceTemplateById(
@@ -151,42 +139,10 @@ public class TerraformDeploymentResultCallbackManager {
                 deployServiceEntity);
     }
 
-    private DeployResult getDeployResult(UUID serviceId, TerraformResult result,
-                                         DeploymentScenario scenario) {
-        DeployResult deployResult = new DeployResult();
-        deployResult.setOrderId(result.getRequestId());
-        deployResult.setServiceId(serviceId);
-        deployResult.setDeployerVersionUsed(result.getTerraformVersionUsed());
-        if (Boolean.FALSE.equals(result.getCommandSuccessful())) {
-            deployResult.setIsTaskSuccessful(false);
-            deployResult.setMessage(result.getCommandStdError());
-        } else {
-            deployResult.setIsTaskSuccessful(true);
-            deployResult.setMessage(null);
-        }
-        deployResult.setTfStateContent(result.getTerraformState());
-        deployResult.setState(getDeployerTaskStatus(scenario, result.getCommandSuccessful()));
-        deployResult.getPrivateProperties()
-                .put(TfResourceTransUtils.STATE_FILE_NAME, result.getTerraformState());
-        if (Objects.nonNull(result.getImportantFileContentMap())) {
-            deployResult.getPrivateProperties().putAll(result.getImportantFileContentMap());
-        }
-        return deployResult;
-    }
-
-    private DeployerTaskStatus getDeployerTaskStatus(DeploymentScenario scenario,
-                                                     Boolean isCommandSuccessful) {
-        return switch (scenario) {
-            case DEPLOY -> isCommandSuccessful ? DeployerTaskStatus.DEPLOY_SUCCESS
-                    : DeployerTaskStatus.DEPLOY_FAILED;
-            case MODIFY -> isCommandSuccessful ? DeployerTaskStatus.MODIFICATION_SUCCESSFUL
-                    : DeployerTaskStatus.MODIFICATION_FAILED;
-            case DESTROY -> isCommandSuccessful ? DeployerTaskStatus.DESTROY_SUCCESS
-                    : DeployerTaskStatus.DESTROY_FAILED;
-            case ROLLBACK -> isCommandSuccessful ? DeployerTaskStatus.ROLLBACK_SUCCESS
-                    : DeployerTaskStatus.ROLLBACK_FAILED;
-            case PURGE -> isCommandSuccessful ? DeployerTaskStatus.PURGE_SUCCESS
-                    : DeployerTaskStatus.PURGE_FAILED;
-        };
+    private void updateServiceOrderEntity(DeployResult deployResult) {
+        ServiceOrderEntity serviceOrderEntity =
+                serviceOrderStorage.getEntityById(deployResult.getOrderId());
+        deployResultManager.updateServiceOrderTaskWithDeployResult(deployResult,
+                serviceOrderEntity);
     }
 }

@@ -63,10 +63,13 @@ public class ServiceOrderManager {
             DeployTask deployTask, DeployServiceEntity previousDeployedService) {
         ServiceOrderEntity orderTask = new ServiceOrderEntity();
         orderTask.setOrderId(deployTask.getOrderId());
+        orderTask.setParentOrderId(deployTask.getParentOrderId());
         orderTask.setTaskType(deployTask.getTaskType());
         orderTask.setUserId(deployTask.getUserId());
         orderTask.setDeployServiceEntity(deployServiceStorage
                 .getReferenceById(deployTask.getServiceId()));
+        orderTask.setOriginalServerId(deployTask.getServiceId());
+        orderTask.setWorkflowId(deployTask.getWorkflowId());
         orderTask.setNewDeployRequest(deployTask.getDeployRequest());
         orderTask.setTaskStatus(TaskStatus.CREATED);
         if (Objects.nonNull(previousDeployedService)) {
