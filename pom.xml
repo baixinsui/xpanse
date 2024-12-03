@@ -87,6 +87,8 @@
         <swagger.core.v3.version>2.2.26</swagger.core.v3.version>
         <hcl4j.version>0.9.4</hcl4j.version>
         <jackson.datatype.jsr310.version>2.18.1</jackson.datatype.jsr310.version>
+        <google-java-format.version>1.15.0</google-java-format.version>
+        <formatter-maven-plugin.version>2.24.1</formatter-maven-plugin.version>
     </properties>
     <scm>
         <connection>scm:git:git@github.com:https://github.com/eclipse-xpanse/xpanse.git</connection>
@@ -308,6 +310,25 @@
     </pluginRepositories>
     <build>
         <plugins>
+            <plugin>
+                <groupId>net.revelc.code.formatter</groupId>
+                <artifactId>formatter-maven-plugin</artifactId>
+                <version>${formatter-maven-plugin.version}</version>
+                <configuration>
+                    <configFile>
+                        https://github.com/baixinsui/xpanse/blob/main/code-formatter.xml
+                    </configFile>
+                    <lineEnding>CRLF</lineEnding>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>format</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- JaCoCo plugin -->
             <plugin>
                 <groupId>org.jacoco</groupId>
