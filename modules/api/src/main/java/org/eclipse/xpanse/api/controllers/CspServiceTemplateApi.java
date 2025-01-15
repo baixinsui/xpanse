@@ -117,7 +117,10 @@ public class CspServiceTemplateApi {
                         .build();
         List<ServiceTemplateEntity> serviceTemplateEntities =
                 serviceTemplateManage.listServiceTemplates(queryRequest);
-        log.info(serviceTemplateEntities.size() + " service templates found.");
+        log.info(
+                "{} service templates found by query model: {}.",
+                serviceTemplateEntities.size(),
+                queryRequest);
         return serviceTemplateEntities.stream()
                 .map(ServiceTemplateEntityConverter::convertToServiceTemplateDetailVo)
                 .toList();
@@ -142,8 +145,10 @@ public class CspServiceTemplateApi {
             @Parameter(name = "serviceTemplateId", description = "id of service template")
                     @PathVariable("serviceTemplateId")
                     UUID serviceTemplateId) {
+        String operation = "view details of service template";
         ServiceTemplateEntity templateEntity =
-                serviceTemplateManage.getServiceTemplateDetails(serviceTemplateId, false, true);
+                serviceTemplateManage.getServiceTemplateDetails(
+                        serviceTemplateId, operation, false, true);
         return convertToServiceTemplateDetailVo(templateEntity);
     }
 

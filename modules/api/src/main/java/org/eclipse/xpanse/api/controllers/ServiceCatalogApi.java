@@ -127,8 +127,10 @@ public class ServiceCatalogApi {
             @Parameter(name = "serviceTemplateId", description = "The id of orderable service.")
                     @PathVariable("serviceTemplateId")
                     UUID serviceTemplateId) {
+        String operation = "view details of orderable service template";
         ServiceTemplateEntity serviceTemplateEntity =
-                serviceTemplateManage.getServiceTemplateDetails(serviceTemplateId, false, false);
+                serviceTemplateManage.getServiceTemplateDetails(
+                        serviceTemplateId, operation, false, false);
         if (!serviceTemplateEntity.getIsAvailableInCatalog()) {
             String errorMsg =
                     String.format(

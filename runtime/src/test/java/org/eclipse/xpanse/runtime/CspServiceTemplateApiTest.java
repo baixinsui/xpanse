@@ -270,12 +270,12 @@ class CspServiceTemplateApiTest extends ApisTestCommon {
     void testGetRegistrationDetailsThrowsAccessDeniedException(UUID serviceTemplateId)
             throws Exception {
 
+        String errorMsg =
+                "No permissions to view details of service template, "
+                        + "the service template belonging to other cloud service providers.";
         ErrorResponse accessDeniedErrorResponse =
                 ErrorResponse.errorResponse(
-                        ErrorType.ACCESS_DENIED,
-                        Collections.singletonList(
-                                "No permissions to review service template "
-                                        + "belonging to other cloud service providers."));
+                        ErrorType.ACCESS_DENIED, Collections.singletonList(errorMsg));
         // Run the test detail
         final MockHttpServletResponse detailResponse = getRegistrationDetails(serviceTemplateId);
         // Verify the results
@@ -288,12 +288,12 @@ class CspServiceTemplateApiTest extends ApisTestCommon {
     void testReviewRegistrationThrowsAccessDeniedException(UUID requestId) throws Exception {
 
         // Setup request
+        String errorMsg =
+                "No permissions to review request to service template, "
+                        + "the service template belonging to other cloud service providers.";
         ErrorResponse accessDeniedErrorResponse =
                 ErrorResponse.errorResponse(
-                        ErrorType.ACCESS_DENIED,
-                        Collections.singletonList(
-                                "No permissions to review service template "
-                                        + "request belonging to other cloud service providers."));
+                        ErrorType.ACCESS_DENIED, Collections.singletonList(errorMsg));
         ReviewServiceTemplateRequest request = new ReviewServiceTemplateRequest();
         request.setReviewResult(ServiceReviewResult.APPROVED);
         request.setReviewComment("reviewComment");

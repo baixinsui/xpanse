@@ -516,29 +516,43 @@ class ServiceTemplateApiTest extends ApisTestCommon {
 
     void testManageApisThrowsAccessDeniedException() throws Exception {
 
+        // Setup
+        String errorMsg =
+                "No permissions to register service template belonging to other service vendors.";
         ErrorResponse accessDeniedResponse =
                 ErrorResponse.errorResponse(
-                        ErrorType.ACCESS_DENIED,
-                        Collections.singletonList(
-                                "No permissions to view or manage service template "
-                                        + "belonging to other serviceVendors."));
-        // Setup
+                        ErrorType.ACCESS_DENIED, Collections.singletonList(errorMsg));
         Ocl ocl =
                 oclLoader.getOcl(
                         URI.create("file:src/test/resources/ocl_terraform_test.yml").toURL());
         ocl.setName(UUID.randomUUID().toString());
-        MockHttpServletResponse response = register(ocl);
+        String originalServiceVendor = ocl.getServiceVendor();
+        ocl.setServiceVendor("test");
+        MockHttpServletResponse registerErrorResponse = register(ocl);
+        assertEquals(HttpStatus.FORBIDDEN.value(), registerErrorResponse.getStatus());
+        assertEquals(
+                objectMapper.writeValueAsString(accessDeniedResponse),
+                registerErrorResponse.getContentAsString());
+
+        ocl.setServiceVendor(originalServiceVendor);
+        MockHttpServletResponse registerWell = register(ocl);
         ServiceTemplateRequestInfo serviceTemplateRequestInfo =
                 objectMapper.readValue(
-                        response.getContentAsString(), ServiceTemplateRequestInfo.class);
-        UUID id = serviceTemplateRequestInfo.getServiceTemplateId();
+                        registerWell.getContentAsString(), ServiceTemplateRequestInfo.class);
+
+        // Setup service template with service vendor 'test' to test access denied exception
+        UUID serviceTemplateId = serviceTemplateRequestInfo.getServiceTemplateId();
         ServiceTemplateEntity serviceTemplateEntity =
-                serviceTemplateStorage.getServiceTemplateById(id);
+                serviceTemplateStorage.getServiceTemplateById(serviceTemplateId);
         serviceTemplateEntity.setServiceVendor("test");
         serviceTemplateStorage.storeAndFlush(serviceTemplateEntity);
 
         // Run the test detail
-        final MockHttpServletResponse detailResponse = detail(id);
+        errorMsg =
+                "No permissions to view details of service template, "
+                        + "the service template belonging to other service vendors.";
+        accessDeniedResponse.setDetails(List.of(errorMsg));
+        final MockHttpServletResponse detailResponse = detail(serviceTemplateId);
         // Verify the results
         assertEquals(HttpStatus.FORBIDDEN.value(), detailResponse.getStatus());
         assertEquals(
@@ -546,8 +560,12 @@ class ServiceTemplateApiTest extends ApisTestCommon {
                 detailResponse.getContentAsString());
 
         // Run the test list service template history
+        errorMsg =
+                "No permissions to view request history of service template, "
+                        + "the service template belonging to other service vendors.";
+        accessDeniedResponse.setDetails(List.of(errorMsg));
         final MockHttpServletResponse listRequestsResponse =
-                listServiceTemplateHistoryWithParams(id, "register", null);
+                listServiceTemplateHistoryWithParams(serviceTemplateId, "register", null);
 
         assertEquals(HttpStatus.FORBIDDEN.value(), listRequestsResponse.getStatus());
         assertEquals(
@@ -555,6 +573,10 @@ class ServiceTemplateApiTest extends ApisTestCommon {
                 listRequestsResponse.getContentAsString());
 
         // Run the test -getRequestByRequestId()
+        errorMsg =
+                "No permissions to view details of request to service template, "
+                        + "the service template belonging to other service vendors.";
+        accessDeniedResponse.setDetails(List.of(errorMsg));
         final MockHttpServletResponse getRequestByRequestIdResponse =
                 getServiceTemplateRequestByRequestId(serviceTemplateRequestInfo.getRequestId());
         assertEquals(HttpStatus.FORBIDDEN.value(), getRequestByRequestIdResponse.getStatus());
@@ -565,10 +587,14 @@ class ServiceTemplateApiTest extends ApisTestCommon {
         // Setup request update
         URL updateUrl =
                 URI.create("file:src/test/resources/ocl_terraform_from_git_test.yml").toURL();
-        // Run the test update
         Ocl updateOcl = oclLoader.getOcl(updateUrl);
         updateOcl.setName("serviceTemplateApiTest-02");
-        final MockHttpServletResponse updateResponse = update(id, false, updateOcl);
+        errorMsg =
+                "No permissions to update service template, "
+                        + "the service template belonging to other service vendors.";
+        accessDeniedResponse.setDetails(List.of(errorMsg));
+        // Run the test update
+        final MockHttpServletResponse updateResponse = update(serviceTemplateId, false, updateOcl);
         // Verify the results
         assertEquals(HttpStatus.FORBIDDEN.value(), updateResponse.getStatus());
         assertEquals(
@@ -576,8 +602,12 @@ class ServiceTemplateApiTest extends ApisTestCommon {
                 updateResponse.getContentAsString());
 
         // Run the test -fetchUpdate
+        errorMsg =
+                "No permissions to update service template, "
+                        + "the service template belonging to other service vendors.";
+        accessDeniedResponse.setDetails(List.of(errorMsg));
         final MockHttpServletResponse fetchUpdateResponse =
-                fetchUpdate(id, false, updateUrl.toString());
+                fetchUpdate(serviceTemplateId, false, updateUrl.toString());
         // Verify the results
         assertEquals(HttpStatus.FORBIDDEN.value(), fetchUpdateResponse.getStatus());
         assertEquals(
@@ -585,15 +615,23 @@ class ServiceTemplateApiTest extends ApisTestCommon {
                 fetchUpdateResponse.getContentAsString());
 
         // Run the test unpublish
-        final MockHttpServletResponse unpublishResponse = unpublish(id);
+        errorMsg =
+                "No permissions to unpublish service template, "
+                        + "the service template belonging to other service vendors.";
+        accessDeniedResponse.setDetails(List.of(errorMsg));
+        final MockHttpServletResponse unpublishResponse = unpublish(serviceTemplateId);
         // Verify the results
         assertEquals(HttpStatus.FORBIDDEN.value(), unpublishResponse.getStatus());
         assertEquals(
                 objectMapper.writeValueAsString(accessDeniedResponse),
                 unpublishResponse.getContentAsString());
 
-        // Run the test re-register
-        final MockHttpServletResponse republishResponse = republish(id);
+        // Run the test republish
+        errorMsg =
+                "No permissions to republish service template, "
+                        + "the service template belonging to other service vendors.";
+        accessDeniedResponse.setDetails(List.of(errorMsg));
+        final MockHttpServletResponse republishResponse = republish(serviceTemplateId);
         // Verify the results
         assertEquals(HttpStatus.FORBIDDEN.value(), republishResponse.getStatus());
         assertEquals(
@@ -601,14 +639,18 @@ class ServiceTemplateApiTest extends ApisTestCommon {
                 republishResponse.getContentAsString());
 
         // Run the test deleteTemplate
-        final MockHttpServletResponse deleteResponse = deleteTemplate(id);
+        errorMsg =
+                "No permissions to delete service template, "
+                        + "the service template belonging to other service vendors.";
+        accessDeniedResponse.setDetails(List.of(errorMsg));
+        final MockHttpServletResponse deleteResponse = deleteTemplate(serviceTemplateId);
         // Verify the results
         assertEquals(HttpStatus.FORBIDDEN.value(), deleteResponse.getStatus());
         assertEquals(
                 objectMapper.writeValueAsString(accessDeniedResponse),
                 deleteResponse.getContentAsString());
 
-        deleteServiceTemplate(id);
+        deleteServiceTemplate(serviceTemplateId);
     }
 
     void testRegisterThrowsMethodArgumentNotValidException() throws Exception {

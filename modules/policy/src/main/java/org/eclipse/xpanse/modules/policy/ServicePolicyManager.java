@@ -87,7 +87,7 @@ public class ServicePolicyManager {
         if (!hasManagePermission) {
             throw new AccessDeniedException(
                     "No permissions to view or manage policy belonging to "
-                            + "the service template belonging to other serviceVendors.");
+                            + "the service template belonging to other service vendors.");
         }
         return existedServiceTemplate;
     }

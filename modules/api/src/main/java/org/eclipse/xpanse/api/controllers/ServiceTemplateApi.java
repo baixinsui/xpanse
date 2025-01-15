@@ -338,8 +338,10 @@ public class ServiceTemplateApi {
             @Parameter(name = "serviceTemplateId", description = "id of service template")
                     @PathVariable("serviceTemplateId")
                     UUID serviceTemplateId) {
+        String operation = "view details of service template";
         ServiceTemplateEntity templateEntity =
-                serviceTemplateManage.getServiceTemplateDetails(serviceTemplateId, true, false);
+                serviceTemplateManage.getServiceTemplateDetails(
+                        serviceTemplateId, operation, true, false);
         return convertToServiceTemplateDetailVo(templateEntity);
     }
 
@@ -373,7 +375,7 @@ public class ServiceTemplateApi {
                     @RequestParam(name = "requestStatus", required = false)
                     ServiceTemplateRequestStatus requestStatus) {
         return serviceTemplateManage.getServiceTemplateRequestHistoryByServiceTemplateId(
-                serviceTemplateId, requestType, requestStatus);
+                serviceTemplateId, requestType, requestStatus, true, true);
     }
 
     /**
